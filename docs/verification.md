@@ -1,8 +1,20 @@
 # Verification record
 
-Challenge build date: October 16, 2026. The report's operational clock remains September 21, 2026, 18:00 America/Toronto.
+Challenge build date: October 16, 2026. Updated report cutoff: September 21, 2026, **18:47:27 America/Toronto**. Original baseline cutoff: 18:00 EDT.
 
-## Passed
+## Adaptation verification
+
+- Personally read `NEW_INFORMATION.pdf` and all ten `hamilton_backfill.csv` rows. The PDF confirms Hamilton's unreliable gateway and held-alert delivery at 18:47, superseding the earlier vendor connectivity claim.
+- Independent CSV recomputation passed: ten distinct new alert IDs, zero overlap with original IDs, all Hamilton; all event times precede 18:00 EDT; receipts run 18:47:00–18:47:27. Combined 2,380 rows / 2,246 payload groups; 134 suspicious pairs; 134 delays over one hour, 131 Hamilton; 21 delays over 24 hours; 86 missing-limit speeding rows.
+- V-108's two vendor-MEDIUM/reference-critical records verified directly: A-120811 P0217 at 12:05 EDT, 107 C; A-707191 P0524 at 15:41 EDT, 88 kPa. Earlier WO-5512 addressed September 9 P0171, not these faults.
+- Preserved the original top-three text directly from Git commit `af7eb03` in [baseline-1800.md](baseline-1800.md) before editing the updated README.
+- `python3 -m unittest discover -s tests -v`: **50 tests passed**, including 12 focused backfill checks and an updated-render regression. Identical repeated ingestion produces the same 2,380 rows/2,246 groups; conflicting ID payloads are rejected.
+- `python3 app.py`: nine actions, 18:47:27 cutoff, V-108/V-137/V-151 first. `python3 app.py --baseline --output-dir /tmp/maple-baseline-check` separately reproduces 18:00, eight actions, V-137/V-151/V-158 first.
+- Actual updated headless Chrome checks passed: nine cards, exact cutoff, before/after notice, grouped V-108 records/source labels/WO-5512, all eight raw-file/JSON links, and 390-pixel expanded-evidence layout without page overflow. Updated print-to-PDF generation passed; cross-browser and real-device checks remain untested.
+- Repeated generation produced byte-identical HTML, JSON, and text. All eight original supplied files remain byte-identical to `af7eb03`. Every source link and source SHA-256 hash, including the new PDF/CSV, was verified. All ten normalized held records and original IDs are accessible in JSON with backfill provenance.
+- **Pending:** final public-clone verification after pushing this adaptation. Baseline clone results below do not substitute for the updated check.
+
+## Baseline passes recorded before new information
 
 - `python3 app.py`: generated HTML, JSON, plain-text evidence handover, and terminal summary from the supplied inputs with no installed application dependencies or API keys.
 - Repeated generation produced byte-identical HTML, JSON, and text. All eight supplied files remain byte-identical to the baseline input commit.
@@ -27,5 +39,5 @@ Challenge build date: October 16, 2026. The report's operational clock remains S
 
 - Other browser engines, real mobile devices, screen readers, Windows, and older Python versions.
 - Live ingestion, multi-user task state, acknowledgement/resolution workflows, and external notifications; these are outside the build.
-- Current mechanical condition, dispatch clearance, actual driver exposure, firmware causality, and the cause of Hamilton delays; the export cannot establish these.
+- Current mechanical condition, dispatch clearance, actual driver exposure, firmware causality, and the full extent/duration of missing Hamilton telemetry. The new PDF confirms gateway unreliability; silence does not establish clearance.
 - Intent Card and Final Submission form completion; their URLs are on the facilitator's start page, not supplied in this workspace. Repository publication does not submit those forms.

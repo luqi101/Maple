@@ -64,6 +64,9 @@ def _source_link(source, mapping=None):
 
 
 _AUDIT_LABELS = [
+    ("baseline_raw_alert_count", "Original export alert rows"),
+    ("backfill_row_count", "New Hamilton backfill rows"),
+    ("repeated_input_row_count", "Repeated input rows excluded"),
     ("raw_alert_count", "Raw alert rows"),
     ("event_group_count", "Event groups after suspected duplicate grouping"),
     ("suspected_duplicate_pairs", "Suspected duplicate pairs"),
@@ -90,10 +93,13 @@ def _evidence_table(evidence):
             measurement += f"; posted limit {_number(event['posted_limit_kmh'])} km/h"
         reference = event.get("reference_urgency") or "Not supplied for this event type"
         meaning = event.get("meaning") or event.get("dtc_meaning") or ""
+        provenance = ", ".join(str(v) for v in _items(event.get("sources")))
         rows.append(
             "<tr>"
             f"<td><strong>{_h(event.get('alert_type', ''))}</strong><br><code>{_h(code)}</code>"
-            f"<div class='record-ids'>{_h(_ids(event.get('alert_ids')))}</div></td>"
+            f"<div class='record-ids'>{_h(_ids(event.get('alert_ids')))}</div>"
+            + (f"<div class='muted'>Source: {_h(provenance)}</div>" if provenance else "")
+            + "</td>"
             f"<td>{_h(_date(event.get('event_time'), True))}</td>"
             f"<td>{received}<div class='muted'>Lag: {_h(_lag(event.get('receipt_lag_seconds')))}</div></td>"
             f"<td>{_h(measurement)}<br><span class='muted'>Vendor: {_h(event.get('vendor_severity') or 'Not supplied')}</span></td>"
@@ -125,6 +131,22 @@ def _work_order_table(orders):
         "<th>Work order / status</th><th>Opened · Eastern</th><th>Closed · Eastern</th>"
         "<th>Work recorded</th><th>Technician note / booking</th></tr></thead><tbody>"
         + "".join(rows) + "</tbody></table></div>"
+    )
+
+
+def _update_html(update, as_of):
+    if not update:
+        return ""
+    before = " → ".join(str(v) for v in _items(update.get("baseline_top_three")))
+    after = " → ".join(str(v) for v in _items(update.get("updated_top_three")))
+    notes = "".join(f"<li>{_h(note)}</li>" for note in _items(update.get("notes")))
+    return (
+        "<section class='update-notice' aria-labelledby='update-heading'>"
+        "<h2 id='update-heading'>What changed after the new information</h2>"
+        f"<p>{_h(update.get('backfill_row_count', 'New'))} delayed Hamilton alerts arrived in the 6:47 p.m. EDT batch "
+        f"(through {_h(_date(as_of, True))}). Their events occurred earlier the same day, before the original 6:00 p.m. snapshot.</p>"
+        f"<p><strong>Before:</strong> {_h(before)}<br><strong>After:</strong> {_h(after)}</p>"
+        f"<ul>{notes}</ul></section>"
     )
 
 
@@ -189,7 +211,7 @@ def render_html(report: dict) -> str:
 a{color:var(--green);text-underline-offset:3px}a:focus-visible,summary:focus-visible{outline:3px solid #b66e20;outline-offset:5px}.shell{max-width:1260px;margin:0 auto;padding:0 36px}
 .masthead{background:var(--ink);color:#fff;border-bottom:5px solid #be8353}.brand{padding:20px 0;font-size:14px;font-weight:750;letter-spacing:.15em}.brand span{color:#c6d6cc;font-weight:400;letter-spacing:0;margin-left:14px}
 header{padding:44px 0 28px}.eyebrow{text-transform:uppercase;letter-spacing:.1em;font-size:11px;font-weight:750;color:var(--muted)}h1{font-size:clamp(34px,5vw,57px);line-height:1.08;letter-spacing:-.045em;margin:12px 0 19px;max-width:840px}h2{font-size:25px;letter-spacing:-.025em;margin:0}h3{font-size:20px;line-height:1.3;letter-spacing:-.018em;margin:8px 0 10px}p{margin:9px 0 14px}.snapshot{display:flex;flex-wrap:wrap;gap:10px 28px;color:var(--muted);font-size:14px}.snapshot strong{color:var(--ink)}
-.notice{padding:13px 17px;background:#e5e9df;border-left:3px solid var(--green);font-size:13px;max-width:980px;margin-top:22px}.top-area{padding:15px 0 36px}.section-title{display:flex;align-items:baseline;gap:16px;justify-content:space-between;margin:14px 0 18px}.section-title p{font-size:13px;color:var(--muted);margin:0}.top-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.top-card{display:flex;gap:14px;padding:22px;background:var(--green);color:white;text-decoration:none;border-radius:5px}.top-card:first-child{background:var(--alert)}.top-card:hover{filter:brightness(1.07)}.top-card .eyebrow{color:#e0e9df}.top-card p{font-size:13px;color:#f3f3e9}.top-card h3{font-size:19px}.top-number{font-size:16px;opacity:.65;font-variant-numeric:tabular-nums}.top-deadline{font-size:12px;font-weight:650}
+.notice{padding:13px 17px;background:#e5e9df;border-left:3px solid var(--green);font-size:13px;max-width:980px;margin-top:22px}.update-notice{margin-top:20px;padding:18px 20px;border:1px solid #c9b596;background:#faf4e9;border-radius:4px}.update-notice h2{font-size:20px}.update-notice p,.update-notice li{font-size:13px}.update-notice ul{margin-bottom:0;padding-left:20px}.top-area{padding:15px 0 36px}.section-title{display:flex;align-items:baseline;gap:16px;justify-content:space-between;margin:14px 0 18px}.section-title p{font-size:13px;color:var(--muted);margin:0}.top-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.top-card{display:flex;gap:14px;padding:22px;background:var(--green);color:white;text-decoration:none;border-radius:5px}.top-card:first-child{background:var(--alert)}.top-card:hover{filter:brightness(1.07)}.top-card .eyebrow{color:#e0e9df}.top-card p{font-size:13px;color:#f3f3e9}.top-card h3{font-size:19px}.top-number{font-size:16px;opacity:.65;font-variant-numeric:tabular-nums}.top-deadline{font-size:12px;font-weight:650}
 main{padding-bottom:45px}.issue{display:grid;grid-template-columns:48px minmax(0,1fr);gap:18px;padding:27px 28px;background:#fff;border:1px solid var(--line);border-radius:5px;margin:13px 0;scroll-margin-top:20px}.issue-number{color:#6f8275;font-size:23px;font-weight:600;font-variant-numeric:tabular-nums}.issue-meta{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;font-size:12px;font-weight:650;color:var(--muted)}.badge{background:#eef0e8;padding:3px 9px;border-radius:3px;color:#445543}.issue h3{font-size:23px}.issue-body>p{max-width:960px}.action{background:#f0f3ec;padding:15px 18px;border-left:3px solid #52775b;margin:17px 0}.action p{margin:4px 0 12px}.assignment{display:flex;flex-wrap:wrap;gap:7px 26px;font-size:13px}.assignment strong{margin-right:7px}.context{font-size:13px;color:var(--muted)}.context strong{color:#344b41}.record-line{font-size:12px;overflow-wrap:anywhere;color:var(--muted)}
 details{border-top:1px solid var(--line);margin-top:18px;padding-top:14px}summary{cursor:pointer;font-size:14px;font-weight:650}summary span{float:right;font-size:12px;font-weight:400;color:var(--muted)}.table-scroll{overflow-x:auto;margin:14px 0}table{border-collapse:collapse;width:100%;font-size:12px;text-align:left}th,td{padding:11px 10px;vertical-align:top;border-bottom:1px solid var(--line)}thead th{background:#f3f4ef;font-size:11px;min-width:145px}.record-ids{font-size:11px;margin-top:8px;overflow-wrap:anywhere}.muted{color:var(--muted);margin-top:6px}code{font-size:12px}
 .secondary{margin-top:32px;padding-top:25px;border-top:1px solid #c8d1c5}.secondary>p{color:var(--muted);font-size:14px}.selection-policy{padding:0 0 20px;max-width:1050px}.selection-policy h2{font-size:17px}.selection-policy p{font-size:13px;color:var(--muted)}.audit-details{background:#fff;border:1px solid var(--line);padding:20px;border-radius:4px}.audit-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:15px}.audit-grid th{font-weight:500}.audit-grid td{text-align:right;white-space:nowrap;font-weight:650}.audit-grid ul{padding-left:18px;margin-top:8px;font-size:13px}.audit-grid li{margin:9px 0}.review-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.review-card{padding:18px 21px;background:#fdfdf9;border:1px solid var(--line);border-radius:4px}.review-card h3{font-size:17px}.review-card p{font-size:13px}.source-list{display:flex;flex-wrap:wrap;gap:10px 24px;padding:0;list-style:none;font-size:13px}footer{border-top:1px solid var(--line);padding:22px 0 35px;color:var(--muted);font-size:12px}
@@ -199,9 +221,9 @@ details{border-top:1px solid var(--line);margin-top:18px;padding-top:14px}summar
 </style></head><body>
 <div class="masthead"><div class="shell brand">MAPLE FREIGHT <span>Operations handover · September 21, 2026</span></div></div>
 <div class="shell"><header><div class="eyebrow">Evening operations → morning dispatch</div><h1>What needs me tonight?</h1>
-<div class="snapshot"><span><strong>As of</strong> """ + _h(_date(report.get("as_of"))) + """</span><span><strong>Before dispatch</strong> """ + _h(_date(report.get("dispatch_at"))) + """</span></div>
+<div class="snapshot"><span><strong>As of</strong> """ + _h(_date(report.get("as_of"), bool(report.get("update")))) + """</span><span><strong>Before dispatch</strong> """ + _h(_date(report.get("dispatch_at"))) + """</span></div>
 <div class="notice"><strong>Fixed snapshot, not live.</strong> This read-only report supports the manager’s next actions. It does not provide dispatch clearance. Confirm vehicle status and assigned work with the responsible team.</div>
-</header><section class="top-area" aria-labelledby="top-heading"><div class="section-title"><h2 id="top-heading">Tonight’s top 3</h2><p>Start here · reference urgency, work orders, and event timing</p></div><div class="top-grid">""" + "".join(top) + """</div></section>
+""" + _update_html(report.get("update"), report.get("as_of")) + """</header><section class="top-area" aria-labelledby="top-heading"><div class="section-title"><h2 id="top-heading">Tonight’s top 3</h2><p>Start here · reference urgency, work orders, and event timing</p></div><div class="top-grid">""" + "".join(top) + """</div></section>
 <main><section class="selection-policy" aria-labelledby="policy-heading"><h2 id="policy-heading">How this list was chosen</h2><p>""" + _h(report.get("policy") or "Grouped evidence supports a limited list of next actions; confirm outstanding work before dispatch.") + """</p></section>
 <section aria-labelledby="actions-heading"><div class="section-title"><h2 id="actions-heading">Action list</h2><p>""" + str(len(issues)) + """ grouped issues · related records share one action</p></div>""" + "".join(cards) + """</section>
 <section class="secondary" aria-labelledby="quality-heading"><h2 id="quality-heading">Data quality &amp; limits</h2><p>Counts describe the supplied export. The evidence retains every source alert ID.</p>
@@ -217,12 +239,22 @@ def render_text(report: dict) -> str:
     """Return a complete plain-text handover with the same underlying evidence."""
     lines = [
         "MAPLE FREIGHT — What needs me tonight?",
-        f"As of: {_date(report.get('as_of'))}",
+        f"As of: {_date(report.get('as_of'), bool(report.get('update')))}",
         f"Before dispatch: {_date(report.get('dispatch_at'))}",
         "Fixed snapshot, not live. Read-only decision support; no dispatch clearance.",
         "Confirm vehicle status and assigned work with the responsible team.",
-        "", "Tonight’s top 3",
     ]
+    update = report.get("update")
+    if update:
+        lines.extend([
+            "", "What changed after the new information",
+            f"{update.get('backfill_row_count', 'New')} delayed Hamilton alerts arrived in the 6:47 p.m. EDT batch (through {_date(report.get('as_of'), True)}).",
+            "Their events occurred earlier the same day, before the original 6:00 p.m. snapshot.",
+            "Before: " + " → ".join(str(v) for v in _items(update.get("baseline_top_three"))),
+            "After: " + " → ".join(str(v) for v in _items(update.get("updated_top_three"))),
+        ])
+        lines.extend(f"- {note}" for note in _items(update.get("notes")))
+    lines.extend(["", "Tonight’s top 3"])
     for index, issue in enumerate(_items(report.get("issues"))[:3], 1):
         lines.extend([
             f"{index}. {issue.get('vehicle_id', '')}: {issue.get('title', '')}",
@@ -245,6 +277,7 @@ def render_text(report: dict) -> str:
         for event in _items(issue.get("evidence")):
             lines.extend([
                 f"  {_ids(event.get('alert_ids'))} | {event.get('alert_type', '')} | {event.get('dtc_code') or 'no DTC'}",
+                "  Source: " + (", ".join(str(v) for v in _items(event.get("sources"))) or "Not supplied"),
                 f"  Event: {_date(event.get('event_time'), True)}",
                 "  Received: " + "; ".join(_date(v, True) for v in _items(event.get("received_times"))),
                 f"  Delivery lag: {_lag(event.get('receipt_lag_seconds'))}",

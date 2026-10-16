@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 EASTERN = ZoneInfo("America/Toronto")
 SNAPSHOT = datetime(2026, 9, 21, 18, tzinfo=EASTERN)
+UPDATE_SNAPSHOT = datetime(2026, 9, 21, 18, 47, 27, tzinfo=EASTERN)
 DISPATCH = datetime(2026, 9, 22, 6, tzinfo=EASTERN)
 DEFAULT_DATA = Path(__file__).resolve().parent.parent / "data"
 UNKNOWN_REFERENCE = "Unknown — reference unavailable"
@@ -54,6 +55,30 @@ def read_csv(path: Path, required: set[str]) -> list[dict]:
     if any(None in row or any(v is None for v in row.values()) for row in rows):
         raise ValueError(f"{path.name}: malformed CSV row; inspect the supplied file")
     return rows
+
+
+def merge_alert_sources(sources: list[tuple[str, list[dict]]]) -> tuple[list[dict], dict, int]:
+    """Idempotent ingestion, distinct from suspected event-payload grouping.
+
+    Identical records with the same ID are one observation with all source
+    labels retained. A conflicting reuse of an ID stops generation for review.
+    Distinct IDs remain raw evidence even when their event payloads match.
+    """
+    by_id, provenance = {}, {}
+    repeated = 0
+    for source, rows in sources:
+        for row in rows:
+            alert_id = row["alert_id"]
+            if alert_id in by_id:
+                if by_id[alert_id] != row:
+                    raise ValueError(f"Conflicting records for alert_id {alert_id}; review the source files")
+                repeated += 1
+            else:
+                by_id[alert_id] = dict(row)
+                provenance[alert_id] = []
+            if source not in provenance[alert_id]:
+                provenance[alert_id].append(source)
+    return list(by_id.values()), provenance, repeated
 
 
 def group_alerts(rows: list[dict]) -> list[dict]:
@@ -159,7 +184,7 @@ def event_evidence(group: dict, references: dict, work_orders: list[dict]) -> di
     }
 
 
-def form_issues(groups: list[dict], vehicles: dict, references: dict, work_orders: list[dict]) -> list[dict]:
+def form_issues(groups: list[dict], vehicles: dict, references: dict, work_orders: list[dict], as_of: datetime = SNAPSHOT) -> list[dict]:
     """One shop coordination issue per vehicle, plus one safety-review candidate.
 
     All unaddressed reference-critical/high DTCs are candidates. Lower urgency
@@ -185,21 +210,24 @@ def form_issues(groups: list[dict], vehicles: dict, references: dict, work_order
         matching_open = [o for o in orders if o["status"].casefold() == "open"
                          and ("misfire" in (o["work_done"] + " " + o["technician_note"]).casefold()
                               or any(g["dtc_code"] in o["work_done"] + " " + o["technician_note"] for g in faults))]
-        recent = latest["event_time"].astimezone(EASTERN).date() >= (SNAPSHOT - timedelta(days=1)).date()
+        recent = latest["event_time"].astimezone(EASTERN).date() >= (as_of - timedelta(days=1)).date()
         inspection_deadline = min(g["event_time"] for g in faults) + timedelta(hours=24)
-        inspection_overdue = inspection_deadline <= SNAPSHOT
+        inspection_overdue = inspection_deadline <= as_of
         if critical:
             primary = max((g for g in faults if reference_urgency(g, references).startswith("Critical")), key=lambda g: g["event_time"])
             code = primary["dtc_code"]
             meaning = references.get(code, {}).get("meaning", "Fault meaning unavailable")
             title = f"{code}: {meaning} — confirm stopped and obtain mechanic assessment"
             why = f"The supplied {code} reference says: {reference_urgency(primary, references)}. The vendor labels this event {primary['vendor_severity']}."
+            critical_codes = sorted({g["dtc_code"] for g in faults if reference_urgency(g, references).startswith("Critical")})
+            if len(critical_codes) > 1:
+                why += " The same grouped vehicle issue also includes reference-critical " + ", ".join(c for c in critical_codes if c != code) + "."
             other_repaired_codes = {g["dtc_code"] for g in groups if g["vehicle_id"] == vehicle_id
                                     and g["dtc_code"] != code
                                     and repair_state(g, work_orders)["state"] == "documented_repair"}
             if other_repaired_codes:
                 why += " Documented repairs for different codes (" + ", ".join(sorted(other_repaired_codes)) + ") do not resolve this event."
-            action = f"Confirm the vehicle is stopped now; ask the maintenance lead to assess the reported {code} fault and confirm dispatch clearance."
+            action = f"Confirm the vehicle is stopped now; ask the maintenance lead to assess the reported {' / '.join(critical_codes)} fault evidence and confirm dispatch clearance."
             deadline = "Tonight immediately; confirm clearance before September 22, 06:00 EDT"
             status = "Immediate reference action; current vehicle status unknown"
             uncertainty = "The export cannot establish current mechanical condition or prove a diagnosis. A repair for a different code does not establish clearance for this fault."
@@ -323,30 +351,47 @@ def audit_data(rows: list[dict], groups: list[dict], vehicles: dict) -> dict:
             "Hamilton has a delayed-delivery pattern, not a proven common batch or diagnosed gateway failure. Use event time for chronology, receipt time for delivery freshness.",
             "Maintenance values are dated observations: negative means not yet due. Only three maintenance readings are from September 21; 20 vehicles have no supplied reading. Do not project current mileage from 14-day totals.",
             "Vendor notes describe 23:00–00:00 local device/camera events as expected updates. Outside-window alerts remain in the raw data; isolated events do not establish continuing downtime.",
-            "Firmware 4.2.1 is associated with more low-magnitude braking reports: 12/60 vehicles account for 488/837 raw braking rows. This observation does not prove a firmware defect or worse driving.",
+            f"Firmware 4.2.1 is associated with more low-magnitude braking reports: {firmware['4.2.1']}/{len(vehicles)} vehicles account for {braking['4.2.1']}/{sum(braking.values())} raw braking rows. This observation does not prove a firmware defect or worse driving.",
             "No GPS, trip history, driver-specific kilometers/hours, assignment history, complete repair history, or current mechanical/dispatch status is supplied. Absent evidence remains unknown.",
             "One-hour and one-day delivery summaries describe latency; they are not invented operational safety thresholds. The yesterday/today grouping used for recent inspection coordination is a documented product ordering choice, not a diagnosis.",
         ],
     }
 
 
-def build_report(data_dir: Path | str = DEFAULT_DATA) -> dict:
+def build_report(data_dir: Path | str = DEFAULT_DATA, include_backfill: bool = True, backfill_paths=None) -> dict:
     data_dir = Path(data_dir)
-    alerts = read_csv(data_dir / "alerts.csv", {"alert_id", "vehicle_id", "driver_id", "alert_type", "vendor_severity", "event_time_utc", "received_time_utc", "value", "unit", "posted_limit_kmh", "dtc_code"})
+    alert_columns = {"alert_id", "vehicle_id", "driver_id", "alert_type", "vendor_severity", "event_time_utc", "received_time_utc", "value", "unit", "posted_limit_kmh", "dtc_code"}
+    original_alerts = read_csv(data_dir / "alerts.csv", alert_columns)
+    alert_sources = [("alerts.csv", original_alerts)]
+    extra_paths = [Path(p) for p in (backfill_paths if backfill_paths is not None else [data_dir.parent / "hamilton_backfill.csv"])] if include_backfill else []
+    for path in extra_paths:
+        rows = read_csv(path, alert_columns)
+        if rows and set(rows[0]) != alert_columns:
+            raise ValueError(f"{path.name}: backfill schema differs from alerts.csv")
+        alert_sources.append((path.name, rows))
+    alerts, provenance, repeated_input_rows = merge_alert_sources(alert_sources)
+    as_of = UPDATE_SNAPSHOT if include_backfill else SNAPSHOT
     vehicle_rows = read_csv(data_dir / "vehicles.csv", {"vehicle_id", "depot", "device_firmware", "assigned_driver", "km_driven_14d"})
     reference_rows = read_csv(data_dir / "dtc_reference.csv", {"dtc_code", "meaning", "reference_urgency"})
     all_orders = read_csv(data_dir / "work_orders.csv", {"wo_id", "vehicle_id", "opened_local", "closed_local", "status", "work_done", "technician_note"})
     vehicles = {v["vehicle_id"]: v for v in vehicle_rows}
     references = {r["dtc_code"]: r for r in reference_rows}
-    eligible = [r for r in alerts if parse_utc(r["event_time_utc"]) <= SNAPSHOT and parse_utc(r["received_time_utc"]) <= SNAPSHOT]
+    eligible = [r for r in alerts if parse_utc(r["event_time_utc"]) <= as_of and parse_utc(r["received_time_utc"]) <= as_of]
     groups = group_alerts(eligible)
-    orders = [o for o in all_orders if parse_local(o["opened_local"]) <= SNAPSHOT]
-    if any(o["closed_local"] and parse_local(o["closed_local"]) > SNAPSHOT for o in orders):
+    orders = [o for o in all_orders if parse_local(o["opened_local"]) <= as_of]
+    if any(o["closed_local"] and parse_local(o["closed_local"]) > as_of for o in orders):
         raise ValueError("Work orders contain post-snapshot closure data; review as-of status before generating a report")
     audit = audit_data(eligible, groups, vehicles)
     audit["excluded_after_snapshot_count"] = len(alerts) - len(eligible)
     audit["unknown_dtc_count"] = sum(r["alert_type"] == "engine_fault" and r["dtc_code"] not in references for r in eligible)
-    issues, overflow = prioritize(form_issues(groups, vehicles, references, orders))
+    issues, overflow = prioritize(form_issues(groups, vehicles, references, orders, as_of=as_of))
+    audit["baseline_raw_alert_count"] = len(original_alerts)
+    audit["backfill_row_count"] = len({r["alert_id"] for _, rows in alert_sources[1:] for r in rows})
+    audit["repeated_input_row_count"] = repeated_input_rows
+    if include_backfill:
+        audit["notes"] = [note for note in audit["notes"] if not note.startswith("Hamilton has") and not note.startswith("The 248")]
+        audit["notes"].insert(0, "The assessment update establishes that Hamilton's cellular gateway was unreliable and reconnected at 18:47 EDT. Ten held same-day events arrived at 18:47:00–18:47:27. Gaps during unreliable delivery cannot establish no fault, recovery, or dispatch clearance; exact outage intervals are not supplied.")
+        audit["notes"].insert(1, "There are now 249 blank value/unit pairs: 153 camera/device events and 96 engine faults. Blank fault readings do not erase their supplied DTC meaning.")
     audit["overflow_issue_count"] = len(overflow)
     audit["vendor_high_reference_low_count"] = sum(r["alert_type"] == "engine_fault" and r["vendor_severity"] == "HIGH" and references.get(r["dtc_code"], {}).get("reference_urgency", "").startswith("Low") for r in eligible)
     audit["vendor_high_engine_count"] = sum(r["alert_type"] == "engine_fault" and r["vendor_severity"] == "HIGH" for r in eligible)
@@ -375,10 +420,38 @@ def build_report(data_dir: Path | str = DEFAULT_DATA) -> dict:
         appendix.append({"title": "Capacity overflow: " + issue["title"], "detail": issue["why"] + " Next: " + issue["next_action"], "alert_ids": issue["alert_ids"], "work_order_ids": issue["work_order_ids"]})
     if unknown_faults:
         appendix.append({"title": "Unknown fault-reference urgency — review required", "detail": "Unmapped DTCs are unknown, not low or safe; review their raw evidence before making a dispatch decision.", "alert_ids": [a for g in unknown_faults for a in g["alert_ids"]], "work_order_ids": []})
-    return {
-        "title": "What needs me tonight?", "as_of": iso_local(SNAPSHOT), "dispatch_at": iso_local(DISPATCH),
+    if include_backfill:
+        held = [g for g in groups if any("hamilton_backfill.csv" in provenance[aid] for aid in g["alert_ids"])]
+        appendix.append({"title": "Held Hamilton batch: all supplied observations", "detail": "All ten held records remain in the combined analysis and original CSV. V-108's two critical reports form one action; the other eight observations remain evidence, not eight invented urgent tasks. Event time and manager availability remain separate.", "alert_ids": [a for g in held for a in g["alert_ids"]], "work_order_ids": ["WO-5512"], "evidence": [event_evidence(g, references, orders) for g in held]})
+    for item in issues + overflow + appendix:
+        for evidence in item.get("evidence", []):
+            evidence["sources"] = sorted({source for aid in evidence["alert_ids"] for source in provenance[aid]})
+    source_paths = {name: data_dir / name for name in ["alerts.csv", "vehicles.csv", "dtc_reference.csv", "work_orders.csv", "vendor_notes.md"]}
+    for path in extra_paths:
+        source_paths[path.name] = path
+    if include_backfill and (data_dir.parent / "NEW_INFORMATION.pdf").exists():
+        source_paths["NEW_INFORMATION.pdf"] = data_dir.parent / "NEW_INFORMATION.pdf"
+    report = {
+        "title": "What needs me tonight?", "as_of": iso_local(as_of), "dispatch_at": iso_local(DISPATCH),
         "issues": issues, "audit": audit, "drivers": drivers, "appendix": appendix,
-        "sources": ["alerts.csv", "vehicles.csv", "dtc_reference.csv", "work_orders.csv", "vendor_notes.md"],
-        "source_sha256": {name: hashlib.sha256((data_dir / name).read_bytes()).hexdigest() for name in ["alerts.csv", "vehicles.csv", "dtc_reference.csv", "work_orders.csv", "vendor_notes.md"]},
+        "sources": list(source_paths),
+        "source_locations": {name: str(path.resolve()) for name, path in source_paths.items()},
+        "source_sha256": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in source_paths.items()},
+        "alert_provenance": provenance,
         "policy": "Critical reference actions first; recent overdue inspection second; booked pre-dispatch coordination third; one strongest recorded-speed review fourth; older reference-high status checks newest-first. Cap ten and expose overflow. Recent means event on snapshot day or previous local day; it is an explicit ordering assumption, not a safety cutoff.",
     }
+    if include_backfill:
+        report["update"] = {
+            "title": "What changed after the new information", "baseline_as_of": iso_local(SNAPSHOT),
+            "baseline_top_three": ["V-137", "V-151", "V-158"],
+            "updated_top_three": [i["vehicle_id"] for i in issues[:3]],
+            "backfill_row_count": audit["backfill_row_count"],
+            "notes": [
+                "Ten held Hamilton alerts became available at 18:47:00–18:47:27 EDT. All event times precede the original 18:00 snapshot; the information-availability cutoff advances to the last supplied receipt, 18:47:27.",
+                "V-108 now has one grouped critical action: P0217 A-120811 happened at 12:05 EDT (107 C); P0524 A-707191 at 15:41 EDT (88 kPa). Both vendor-MEDIUM labels conflict with reference-critical stop instructions. WO-5512 repaired P0171, a different code, on September 9.",
+                "The existing critical-first ordering puts V-108 ahead of V-137 because its latest critical event is later (15:41 versus 14:32 EDT), not because it arrived later. V-151 becomes third; V-158's booked-inspection coordination remains fourth, not resolved.",
+                "Gateway unreliability is now established by the update. Delayed does not mean harmless, and a telemetry gap does not establish recovery. Exact outage intervals and current vehicle condition remain unknown.",
+                "Other held evidence remains accessible: V-124 P0171 is reference next-service, V-126 records 104/60 km/h (+44), and V-131's 131 km/h has no posted limit. No invented excess, driver exposure, diagnosis, or extra critical issue is inferred.",
+            ],
+        }
+    return report

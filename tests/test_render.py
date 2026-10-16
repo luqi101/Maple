@@ -30,7 +30,7 @@ class ReportMarkup(HTMLParser):
 class RenderingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.report = build_report()
+        cls.report = build_report(include_backfill=False)
 
     def test_untrusted_strings_are_text_and_cannot_add_markup(self):
         report = deepcopy(self.report)
@@ -79,6 +79,26 @@ class RenderingTests(unittest.TestCase):
         self.assertIn(self.report["policy"], html)
         self.assertIn("Fixed snapshot, not live.", html)
         self.assertIn("does not provide dispatch clearance", html)
+
+    def test_backfill_changes_are_explicit_with_provenance_and_full_as_of_time(self):
+        report = build_report()
+        report["source_links"] = {"hamilton_backfill.csv": "../hamilton_backfill.csv", "NEW_INFORMATION.pdf": "../NEW_INFORMATION.pdf"}
+        html = render_html(report)
+        text = render_text(report)
+        markup = ReportMarkup()
+        markup.feed(html)
+        self.assertEqual(markup.issue_count, 9)
+        for output in (html, text):
+            self.assertIn("What changed after the new information", output)
+            self.assertIn("V-137 → V-151 → V-158", output)
+            self.assertIn("V-108 → V-137 → V-151", output)
+            self.assertIn("6:47:27 p.m. EDT", output)
+            self.assertIn("earlier the same day", output)
+            self.assertIn("Source: hamilton_backfill.csv", output)
+            self.assertIn("A-120811", output)
+            self.assertIn("A-707191", output)
+        self.assertIn("../hamilton_backfill.csv", markup.links)
+        self.assertIn("../NEW_INFORMATION.pdf", markup.links)
 
 
 if __name__ == "__main__":

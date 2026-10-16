@@ -269,7 +269,7 @@ class SuppliedDataIntegrationTests(unittest.TestCase):
         with (cls.data_dir / "alerts.csv").open(newline="", encoding="utf-8") as source:
             cls.alerts = list(csv.DictReader(source))
         cls.alert_by_id = {row["alert_id"]: row for row in cls.alerts}
-        cls.report = build_report(cls.data_dir)
+        cls.report = build_report(cls.data_dir, include_backfill=False)
 
     def test_audit_counts_include_suspected_redeliveries(self):
         audit = self.report["audit"]

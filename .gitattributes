@@ -1,2 +1,4 @@
 # The original-message extraction deliberately preserves message whitespace.
 docs/ai-session.md -whitespace
+# Preserve the supplied backfill's original CRLF bytes.
+hamilton_backfill.csv -text whitespace=cr-at-eol
