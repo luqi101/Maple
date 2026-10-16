@@ -12,7 +12,7 @@ Challenge build date: October 16, 2026. Updated report cutoff: September 21, 202
 - `python3 app.py`: nine actions, 18:47:27 cutoff, V-108/V-137/V-151 first. `python3 app.py --baseline --output-dir /tmp/maple-baseline-check` separately reproduces 18:00, eight actions, V-137/V-151/V-158 first.
 - Actual updated headless Chrome checks passed: nine cards, exact cutoff, before/after notice, grouped V-108 records/source labels/WO-5512, all eight raw-file/JSON links, and 390-pixel expanded-evidence layout without page overflow. Updated print-to-PDF generation passed; cross-browser and real-device checks remain untested.
 - Repeated generation produced byte-identical HTML, JSON, and text. All eight original supplied files remain byte-identical to `af7eb03`. Every source link and source SHA-256 hash, including the new PDF/CSV, was verified. All ten normalized held records and original IDs are accessible in JSON with backfill provenance.
-- **Pending:** final public-clone verification after pushing this adaptation. Baseline clone results below do not substitute for the updated check.
+- Fresh public GitHub clone of adaptation commit `1c37a839fc48c6e24fc22a2eeaa5dbf694f06466` passed default generation and **all 50 tests**. The clone also reproduced the original baseline with `--baseline`; verified updated counts/top three/as-of, all source links and hashes, both new inputs, and a clean Git working tree. The final hand-in follow-up changes documentation/session provenance only.
 
 ## Baseline passes recorded before new information
 
