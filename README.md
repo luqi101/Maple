@@ -62,6 +62,8 @@ Data normalization/grouping, issue formation, and prioritization are separate fu
 
 Real headless Chrome checks passed for the eight cards, top-three order, expandable evidence, local raw-file/JSON links, and work-order facts. Desktop screenshots were visually reviewed. A mobile overflow bug with evidence open was fixed; the 390-pixel recheck passed with every evidence section expanded. Print-to-PDF generation passed and extracted text includes the key alert and booking evidence. See [verification results](docs/verification.md) and [repeatable manual checks](docs/manual-checks.md). Cross-browser, real-device, and operational validation remain untested.
 
+A fresh public GitHub clone independently generated the report and passed all 37 tests. Source-file hashes and relative links matched, and generated outputs left Git clean. All supplied files remain byte-identical to the input baseline.
+
 I also recomputed the counts directly from the supplied CSVs during investigation. The key counterexamples are V-137's new P0524 versus its repaired P0217, V-151's overdue misfire versus an unrelated future service, and D-17's missing driver-level denominator.
 
 ## AI use

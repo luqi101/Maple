@@ -7,6 +7,7 @@ Challenge build date: October 16, 2026. The report's operational clock remains S
 - `python3 app.py`: generated HTML, JSON, plain-text evidence handover, and terminal summary from the supplied inputs with no installed application dependencies or API keys.
 - Repeated generation produced byte-identical HTML, JSON, and text. All eight supplied files remain byte-identical to the baseline input commit.
 - `python3 -m unittest discover -s tests -v`: **37 tests passed**. Tests use the supplied data or explicitly synthetic fixtures, with no network calls.
+- A fresh clone from the **public GitHub repository** at commit `9d8d395f2d8edea1a915f40d4eee0f112dfe4781` independently ran `python3 app.py` and all 37 tests successfully. Relative raw-source links, source SHA-256 hashes, the eight priorities, and an unchanged Git working tree were verified in that clone. The subsequent hand-in commit changes documentation/session provenance only.
 - Independent CSV recomputation: 2,370 raw alerts, 2,236 payload groups, 134 suspicious pairs; 124 raw delivery lags over one hour, 121 Hamilton, 21 over one day; maintenance readings for 40 vehicles, 16 positive and 24 negative.
 - Actual Chrome headless desktop inspection at 1440 × 1100: eight action cards; top three V-137/V-151/V-158; expected headings; no document-level horizontal overflow. Screenshot visually inspected.
 - Browser evidence expansion: V-137's WO-5540 closure at 07:40 EDT, V-151's October 5 booking, V-158's "first thing" note, and original source IDs are visible.
