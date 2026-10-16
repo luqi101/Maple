@@ -1,0 +1,2 @@
+# The original-message extraction deliberately preserves message whitespace.
+docs/ai-session.md -whitespace
